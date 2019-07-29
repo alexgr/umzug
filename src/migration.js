@@ -17,6 +17,7 @@ module.exports = class Migration {
    * Constructs Migration.
    *
    * @param {String} path - Path of the migration file.
+   * @param {Object} storage - Storage adapter for migration (couchbase, elasticsearch, sql etc). Defaults to `default`
    * @param {Object} options
    * @param {String} options.upName - Name of the method `up` in migration
    * module.
@@ -110,7 +111,7 @@ module.exports = class Migration {
       fun = migration.default[method] || migration[method];
     }
     if (!fun) throw new Error('Could not find migration method: ' + method);
-    const wrappedFun = this.options.migrations.wrap(fun);
+    const wrappedFun = this.options.migrations.wrap(fun, this.storage);
     const result = wrappedFun.apply(migration, args);
     if (!result || typeof result.then !== 'function') {
       throw new Error(`Migration ${this.file} (or wrapper) didn't return a promise`);
