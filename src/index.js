@@ -73,7 +73,18 @@ module.exports = class Umzug extends EventEmitter {
       };
     }
 
-    this.storage = this._initStorage();
+    this.storage={};
+
+    if(Array.isArray(this.options.storage)) 
+    {
+      for(var i=0;i<this.options.storage.length;i++) {
+        this.storage[this.options.storage[i].type] = this._initStorage(this.options.storage[i].adapter, this.options.storageOptions[i]);
+      }
+    }
+    else 
+    {
+      this.storage['default'] = this._initStorage(this.options.storage, this.options.storageOptions);
+    }
   }
 
   /**
@@ -114,6 +125,16 @@ module.exports = class Umzug extends EventEmitter {
               if (typeof params === 'function') {
                 params = params();
               }
+              
+              var storageType = 'default';
+
+              Object.keys(self.storage).forEach(function(key) {
+                var regex = new RegExp(`[\/\\\\]${key}`,"g");
+                if(migration.path.search(regex) > 0) {
+                  storageType = key;
+                }
+              }); 
+              migration.storage = {type: storageType, adapter: this.storage[storageType]};
 
               if (options.method === 'up') {
                 self.log('== ' + name + ': migrating =======');
@@ -130,9 +151,9 @@ module.exports = class Umzug extends EventEmitter {
           })
           .then((executed) => {
             if (!executed && (options.method === 'up')) {
-              return Bluebird.resolve(self.storage.logMigration(migration.file));
+              return Bluebird.resolve(self.storage[migration.storage.type].logMigration(migration.file));
             } else if (options.method === 'down') {
-              return Bluebird.resolve(self.storage.unlogMigration(migration.file));
+              return Bluebird.resolve(self.storage[migration.storage.type].unlogMigration(migration.file));
             }
           })
           .tap(() => {
@@ -154,7 +175,8 @@ module.exports = class Umzug extends EventEmitter {
    * @returns {Promise.<Migration>}
    */
   executed () {
-    return Bluebird.resolve(this.storage.executed()).bind(this).map((file) => new Migration(file));
+    return Bluebird.map(Object.values(this.storage), storage => storage.executed())
+    .then(files => files.toString().split(',')).bind(this).map(file => {return new Migration(file); });
   }
 
   /**
@@ -380,19 +402,19 @@ module.exports = class Umzug extends EventEmitter {
    * @returns {*|SequelizeStorage|JSONStorage|MongoDBStorage|Storage}
    * @private
    */
-  _initStorage () {
-    if (typeof this.options.storage !== 'string') {
-      return this.options.storage;
+  _initStorage (storageAdapter, options) {
+    if (typeof storageAdapter !== 'string') {
+      return storageAdapter;
     }
 
     let StorageClass;
     try {
-      StorageClass = this._getStorageClass();
+      StorageClass = this._getStorageClass(storageAdapter);
     } catch (e) {
-      throw new Error('Unable to resolve the storage: ' + this.options.storage + ', ' + e);
+      throw new Error('Unable to resolve the storage: ' + storageAdapter + ', ' + e);
     }
 
-    let storage = new StorageClass(this.options.storageOptions);
+    let storage = new StorageClass(options);
     if (storage && storage.options && storage.options.storageOptions) {
       console.warn(
         'Deprecated: Umzug Storage constructor has changed!',
@@ -407,13 +429,13 @@ module.exports = class Umzug extends EventEmitter {
     return storage;
   }
 
-  _getStorageClass () {
-    switch (this.options.storage) {
+  _getStorageClass (storageAdapter) {
+    switch (storageAdapter) {
       case 'none': return Storage;
       case 'json': return JSONStorage;
       case 'mongodb': return MongoDBStorage;
       case 'sequelize': return SequelizeStorage;
-      default: return require(this.options.storage);
+      default: return require(storageAdapter);
     }
   }
 
