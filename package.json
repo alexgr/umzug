@@ -43,7 +43,6 @@
     "build": "babel src --out-dir lib",
     "lint": "eslint src test",
     "test": "mocha -r babel-register --check-leaks test/index.js",
-    "prepare": "npm run build",
     "postinstall": "npm run build"
   },
   "repository": {
