@@ -45,6 +45,7 @@
     "test": "mocha -r babel-register --check-leaks test/index.js"
   },
   "prepare": "npm run build",
+  "postinstall": "npm run build",
   "repository": {
     "type": "git",
     "url": "https://github.com/sequelize/umzug.git"
