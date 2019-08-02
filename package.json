@@ -11,7 +11,8 @@
   "main": "lib/index.js",
   "dependencies": {
     "babel-runtime": "^6.23.0",
-    "bluebird": "^3.5.3"
+    "bluebird": "^3.5.3",
+    "glob": "^7.1.4"
   },
   "devDependencies": {
     "babel-cli": "^6.24.1",

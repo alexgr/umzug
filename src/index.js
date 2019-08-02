@@ -1,5 +1,6 @@
 import Bluebird from 'bluebird';
 import fs from 'fs';
+import glob from 'glob';
 import Migration from './migration';
 import path from 'path';
 import { EventEmitter } from 'events';
@@ -491,9 +492,10 @@ module.exports = class Umzug extends EventEmitter {
   _loadMigrationGroup (migrationOptions) {
     const migrationPath = migrationOptions.path;
     return Bluebird
-      .promisify(fs.readdir)(migrationPath)
+    // .promisify(fs.readdir)(migrationPath)
+      .promisify(glob)(migrationPath)
       .map(file => {
-        let filePath = path.resolve(migrationPath, file);
+        let filePath = path.resolve(file);
         if (migrationOptions.traverseDirectories) {
           if (fs.lstatSync(filePath).isDirectory()) {
             return this._loadMigrationGroup({
