@@ -29,7 +29,7 @@ module.exports = class Umzug extends EventEmitter {
    * @param {Object} [options.storageOptions] - The options for the storage.
    * Check the available storages for further details.
    * @param {Object|Array} [options.migrations] - options for loading migration
-   * files, or (advanced) an array of Migration instances
+   * files, or an array of options
    * @param {Array} [options.migrations.params] - The params that gets passed to
    * the migrations. Might be an array or a synchronous function which returns
    * an array.
@@ -44,6 +44,9 @@ module.exports = class Umzug extends EventEmitter {
    * function that specifies how to get a migration object from a path. This
    * should return an object of the form { up: Function, down: Function }.
    * Without this defined, a regular javascript import will be performed.
+   * @param {Object|Array} [options.migrationInstances] - Array of `Migration`
+   * instances. This is an advanced use case that bypasses Umzug's normal migration
+   * loading logic.
    * @constructs Umzug
    */
   constructor (options = {}) {
@@ -62,16 +65,23 @@ module.exports = class Umzug extends EventEmitter {
       throw new Error('The logging-option should be either a function or false');
     }
 
-    if (!Array.isArray(this.options.migrations)) {
-      this.options.migrations = {
-        params: [],
-        path: path.resolve(process.cwd(), 'migrations'),
-        pattern: /^\d+[\w-]+\.js$/,
-        traverseDirectories: false,
-        wrap: fun => fun,
-        ...this.options.migrations,
-      };
+    if (Array.isArray(this.options.migrations)) {
+      if (this.options.migrations[0] instanceof Migration) {
+        this.options.migrationInstances = this.options.migrations;
+        this.options.migrations = [{}];
+      }
+    } else {
+      this.options.migrations = [this.options.migrations];
     }
+
+    this.options.migrations = this.options.migrations.map(migrationOptions => ({
+      params: [],
+      path: path.resolve(process.cwd(), 'migrations'),
+      pattern: /^\d+[\w-]+\.js$/,
+      traverseDirectories: false,
+      wrap: fun => fun,
+      ...migrationOptions,
+    }));
 
     this.storage={};
 
@@ -120,7 +130,7 @@ module.exports = class Umzug extends EventEmitter {
           .tap((executed) => {
             if (!executed || (options.method === 'down')) {
               const fun = (migration[options.method] || Bluebird.resolve);
-              let params = self.options.migrations.params;
+              let params = migration.options.params;
 
               if (typeof params === 'function') {
                 params = params();
@@ -445,37 +455,20 @@ module.exports = class Umzug extends EventEmitter {
    * @returns {Promise.<Migration[]>}
    * @private
    */
-  _findMigrations (migrationPath) {
-    if (Array.isArray(this.options.migrations)) {
-      return Bluebird.resolve(this.options.migrations);
+  _findMigrations () {
+    if (this.options.migrationInstances) {
+      return Bluebird.resolve(this.options.migrationInstances);
     }
-    const isRoot = !migrationPath;
-    if (isRoot) {
-      migrationPath = this.options.migrations.path;
-    }
+
     return Bluebird
-      .promisify(fs.readdir)(migrationPath)
-      .bind(this)
-      .map(function (file) {
-        const filePath = path.resolve(migrationPath, file);
-        if (this.options.migrations.traverseDirectories) {
-          if (fs.lstatSync(filePath).isDirectory()) {
-            return this._findMigrations(filePath)
-              .then((migrations) => migrations);
-          }
-        }
-        if (this.options.migrations.pattern.test(file)) {
-          return new Migration(filePath, this.options);
-        }
-        return file;
-      })
-      .reduce((a, b) => a.concat(b), []) // flatten the result to an array
-      .filter((file) =>
-        file instanceof Migration // only care about Migration
+      .map(
+        this.options.migrations,
+        migrationOptions => this._loadMigrationGroup(migrationOptions)
       )
-      .then((migrations) => {
-        if (isRoot) { // only sort if its root
-          return migrations.sort((a, b) => {
+      .then(migrationGroups =>
+        migrationGroups
+          .reduce((flattened, group) => flattened.concat(group))
+          .sort(function (a, b) {
             if (a.file > b.file) {
               return 1;
             } else if (a.file < b.file) {
@@ -483,10 +476,44 @@ module.exports = class Umzug extends EventEmitter {
             } else {
               return 0;
             }
+          })
+      );
+  }
+
+
+  /**
+   * Load a set of migration files from a given folder with a given config
+   *
+   * @param {Object} migrationOptions - options for this group of migrations
+   * @returns {Promise.<Migration[]>}
+   * @private
+   */
+  _loadMigrationGroup (migrationOptions) {
+    const migrationPath = migrationOptions.path;
+    return Bluebird
+      .promisify(fs.readdir)(migrationPath)
+      .map(file => {
+        let filePath = path.resolve(migrationPath, file);
+        if (migrationOptions.traverseDirectories) {
+          if (fs.lstatSync(filePath).isDirectory()) {
+            return this._loadMigrationGroup({
+              ...migrationOptions,
+              path: filePath,
+            });
+          }
+        }
+        if (migrationOptions.pattern.test(file)) {
+          return new Migration(filePath, {
+            ...migrationOptions,
+            upName: this.options.upName,
+            downName: this.options.downName,
           });
         }
-        return migrations;
-      });
+        this.log('File: ' + file + ' does not match pattern: ' + migrationOptions.pattern);
+        return file;
+      })
+      .reduce((a, b) => a.concat(b), []) // flatten the result to an array
+      .filter(file => file instanceof Migration); // only care about Migration
   }
 
   /**

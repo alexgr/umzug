@@ -47,8 +47,8 @@ module.exports = class Migration {
    * @returns {Promise.<Object>} Required migration module
    */
   migration () {
-    if (typeof this.options.migrations.customResolver === 'function') {
-      return this.options.migrations.customResolver(this.path);
+    if (typeof this.options.customResolver === 'function') {
+      return this.options.customResolver(this.path);
     }
     if (this.path.match(/\.coffee$/)) {
       // 2.x compiler registration
@@ -111,7 +111,7 @@ module.exports = class Migration {
       fun = migration.default[method] || migration[method];
     }
     if (!fun) throw new Error('Could not find migration method: ' + method);
-    const wrappedFun = this.options.migrations.wrap(fun, this.storage, this.file);
+    const wrappedFun = this.options.wrap(fun, this.storage, this.file);
     const result = wrappedFun.apply(migration, args);
     if (!result || typeof result.then !== 'function') {
       throw new Error(`Migration ${this.file} (or wrapper) didn't return a promise`);
